@@ -8,9 +8,14 @@ import pickle
 
 # %%
 # USER INPUT
-
-lensdir='/glade/collections/cdg/data/CLIVAR_LE/cesm_lens/Amon/ts/' # directory where surface temperature data are located
-outputdir = '/glade/work/rwills/python_output/forced_component/' # directory for saving Pickle files (copy files and change to a directory you have write access)
+model = 'NorESM2-LM'
+exp = 'ssp370-126aer'
+ramipdir = '/gws/nopw/j04/terrafirma/RAMIP/'
+# lensdir='/glade/collections/cdg/data/CLIVAR_LE/cesm_lens/Amon/ts/' # directory where surface temperature data are located
+ensdir = f"{ramipdir}{model}{exp}"
+# tsdir = f"{ramipdir}{model}/{exp}/Amon/ts/"# directory where surface temperature data are located
+# outputdir = '/glade/work/rwills/python_output/forced_component/' # directory for saving Pickle files (copy files and change to a directory you have write access)
+outputdir = '/home/users/lfraser/' # directory for saving Pickle files (copy files and change to a directory you have write access)
 name = "cesm_lens" # name used in Pickle files
 varnam = 'ts' # set to ts for full ts field, ts50 for 50°S to 50°N 
 T = np.arange(1920,2006,1/12) # historical simulations start in 1920 for CESM, 1850 for MPI (first input to arrange must match)
@@ -20,18 +25,18 @@ T = np.arange(1920,2006,1/12) # historical simulations start in 1920 for CESM, 1
 # Preprocess SST data (or load from Pickle file)
 
 # MPI-LENS fx file for common analsis grid and land mask
-ds_fx = xr.open_dataset(outputdir+'T63GR15_jan_surf.nc')
-ds_fx = ds_fx.coarsen(lon=2, lat = 2, boundary='trim').mean()
-loni = ds_fx.lon
-lati = ds_fx.lat
-SLF = ds_fx.SLF
-mask = SLF.where(SLF<0.5)+1
-mask = np.floor(mask.values)
-landmask = SLF.where(SLF>0.5)
-landmask = np.ceil(landmask.values)
-if varnam == 'ts50':
-    mask = mask[8:40,:]
-    landmask = landmask[8:40,:]
+# ds_fx = xr.open_dataset(outputdir+'T63GR15_jan_surf.nc')
+# ds_fx = ds_fx.coarsen(lon=2, lat = 2, boundary='trim').mean()
+# loni = ds_fx.lon
+# lati = ds_fx.lat
+# SLF = ds_fx.SLF
+# mask = SLF.where(SLF<0.5)+1
+# mask = np.floor(mask.values)
+# landmask = SLF.where(SLF>0.5)
+# landmask = np.ceil(landmask.values)
+# if varnam == 'ts50':
+#     mask = mask[8:40,:]
+#     landmask = landmask[8:40,:]
 
 try:
     # load pre-processed SST data from Pickle
@@ -45,26 +50,35 @@ except:
     # preprocess SST data and save to Pickle
     
     # get data files
-    files = sorted(os.listdir(lensdir))
-    files = [s for s in files if "rcp85" in s]
-    n = len(files)
+    # files = sorted(os.listdir(tsdir))
+    members = sorted(os.listdir(ensdir))
+    # files = [s for s in files if "rcp85" in s]
+    n = len(members)
     ne = np.empty(n)
 
     # define axes
-    filename0 = lensdir+files[0]
-    ds0 = xr.open_dataset(filename0)
+    # fname = f"
+    ds0list = []
+    for dec in [2015, 2020, 2030, 2040, 2050]:
+        deci = dec
+        decf = dec + 9 - dec%10
+        filename0 = f"{ensdir}{members[0]}/Amon/tas/gn/v20230810/
+            tas_Amon_{model}_{exp}_{members[0]}_gn_{deci}01-{decf}_12.nc"
+        ds0dec = xr.open_dataset(filename0)
+        ds0list.append(ds0dec)
+    ds0 = xr.concat(ds0list, dim="time")
     lon = ds0.lon
     lat = ds0.lat
-    time = ds0.time
+    time = ds0.time 
     nt = len(time) 
     nt_cut = len(T)
     month = np.linspace(1, 12, 12)
     
-    for ii in range(n):
-        # find ensemble member number
-        i1 = files[ii].find('85_r')+4
-        i2 = files[ii].find('i1')
-        ne[ii] = int(files[ii][i1:i2])
+    # for ii in range(n):
+    #     # find ensemble member number
+    #     i1 = files[ii].find('85_r')+4
+    #     i2 = files[ii].find('i1')
+    #     ne[ii] = int(files[ii][i1:i2])
     
     ts_all = np.empty((n,nt_cut,len(lat),len(lon)))
     ts_clim_all = np.empty((n,12,len(lat),len(lon)))
@@ -73,33 +87,35 @@ except:
     ts_clim_all = xr.DataArray(ts_clim_all, coords=[ne, month, lat, lon], dims=["member", "month", "lat", "lon"])
 
     # concatenate all ensemble members into one dataset
-    for ii in range(n):
+    for ii, member in enumerate(members):
         print(ii)
-        filename = lensdir+files[ii]
+        filename = f"{ensdir}{member}/Amon/tas/gn/v20230810/
+            tas_Amon_{model}_{exp}_{member}_gn_{deci}01-{decf}_12.nc"
         ds_member = xr.open_dataset(filename)
-        ts = ds_member.ts[-nt:,:,:]
-        ts = ts[0:nt_cut,:,:]
+        # ts = ds_member.tas[-nt:,:,:]
+        # ts = ts[0:nt_cut,:,:]
+        ts = ds_member.tas[-nt:,:,:]
         ts_clim = ts.groupby('time.month').mean('time')
         ts_anom = ts.groupby('time.month')-ts_clim
-        if ne[ii] >= 35: # workaround because latitude in the CESM runs on a different computer have machine perturbation lat differences
-            ts_all[ii,:,:,:] = ts_anom.values
-            ts_clim_all[ii,:,:,:] = ts_clim.values
-        else:
-            ts_all[ii,:,:,:] = ts_anom
-            ts_clim_all[ii,:,:,:] = ts_clim
+        # if ne[ii] >= 35: # workaround because latitude in the CESM runs on a different computer have machine perturbation lat differences
+        #     ts_all[ii,:,:,:] = ts_anom.values
+        #     ts_clim_all[ii,:,:,:] = ts_clim.values
+        # else:
+        ts_all[ii,:,:,:] = ts_anom
+        ts_clim_all[ii,:,:,:] = ts_clim
         
     # coarsen resolution by a factor of 2
-    ts_all = ts_all.coarsen(lon=2, lat = 2, boundary='trim').mean()
-    ts_clim_all = ts_clim_all.coarsen(lon=2, lat = 2, boundary='trim').mean()
+    # ts_all = ts_all.coarsen(lon=2, lat = 2, boundary='trim').mean()
+    # ts_clim_all = ts_clim_all.coarsen(lon=2, lat = 2, boundary='trim').mean()
     
-    # interpolate to common analysis grid (land mask not yet applied)
-    if varnam == 'ts50':
-        lati = lati[8:40] # to exclude latitudes greater than 50 degrees
-    ts_all = ts_all.interp(lon = loni, lat = lati)
-    ts_clim_all = ts_clim_all.interp(lon = loni, lat = lati)
+    # # interpolate to common analysis grid (land mask not yet applied)
+    # if varnam == 'ts50':
+    #     lati = lati[8:40] # to exclude latitudes greater than 50 degrees
+    # ts_all = ts_all.interp(lon = loni, lat = lati)
+    # ts_clim_all = ts_clim_all.interp(lon = loni, lat = lati)
     
-    pickle.dump(ts_all, open(outputdir+name+"_"+varnam+"_all.p", "wb" ),protocol=4)
-    pickle.dump(ts_clim_all, open(outputdir+name+"_"+varnam+"_clim_all.p", "wb" ))
+    # pickle.dump(ts_all, open(outputdir+name+"_"+varnam+"_all.p", "wb" ),protocol=4)
+    # pickle.dump(ts_clim_all, open(outputdir+name+"_"+varnam+"_clim_all.p", "wb" ))
     
 ne = ts_all.member
 nt = len(ts_all.time)
@@ -138,7 +154,6 @@ index = X_flat.index
 n = len(index)
 
 # %%
-%%time
 # Perform ensemble EOF analysis (takes a few minutes), or load from Pickle if it has already been done
 
 try:
@@ -250,10 +265,10 @@ M = 13  # number of forced patterns to retain, choose cutoff based on eigenvalue
 
 X_forced = np.matmul(tk_emean[:,0:M],SNPs_reshaped[0:M,:,:].reshape(M,len(lat)*len(lon)))
 X_forced = X_forced.reshape(len(T),len(lat),len(lon))
-X_forced_land = X_forced*landmask[None,:,:]
+# X_forced_land = X_forced*landmask[None,:,:]
 X_forced = xr.DataArray(X_forced, coords=[T,lat,lon], dims=["time","lat","lon"])
-X_forced_land = xr.DataArray(X_forced_land, coords=[T,lat,lon], dims=["time","lat","lon"])
-Xt_ensmean_land = Xt_ensmean*landmask
+# X_forced_land = xr.DataArray(X_forced_land, coords=[T,lat,lon], dims=["time","lat","lon"])
+# Xt_ensmean_land = Xt_ensmean*landmask
 
 GMST_forced = X_forced.mean('lon').mean('lat')
 GMST_ensmean = Xt_ensmean.mean('lon').mean('lat')
@@ -261,11 +276,11 @@ GMST_ensmean = Xt_ensmean.mean('lon').mean('lat')
 #Arctic_forced = X_forced.sel(lat=slice(90,65)).mean('lon').mean('lat')
 #Arctic_ensmean = Xt_ensmean.sel(lat=slice(90,65)).mean('lon').mean('lat')
 
-tropical_land_forced = X_forced_land.sel(lat=slice(10,-10)).mean('lon').mean('lat')
-tropical_land_ensmean = Xt_ensmean_land.sel(lat=slice(10,-10)).mean('lon').mean('lat')
+# tropical_land_forced = X_forced_land.sel(lat=slice(10,-10)).mean('lon').mean('lat')
+# tropical_land_ensmean = Xt_ensmean_land.sel(lat=slice(10,-10)).mean('lon').mean('lat')
 
-US_land_forced = X_forced_land.sel(lon=slice(235,295),lat=slice(45,30)).mean('lon').mean('lat')
-US_land_ensmean = Xt_ensmean_land.sel(lon=slice(235,295),lat=slice(45,30)).mean('lon').mean('lat')
+# US_land_forced = X_forced_land.sel(lon=slice(235,295),lat=slice(45,30)).mean('lon').mean('lat')
+# US_land_ensmean = Xt_ensmean_land.sel(lon=slice(235,295),lat=slice(45,30)).mean('lon').mean('lat')
 
 Nino34_forced = X_forced.sel(lon=slice(190,240),lat=slice(5,-5)).mean('lon').mean('lat')
 Nino34_ensmean = Xt_ensmean.sel(lon=slice(190,240),lat=slice(5,-5)).mean('lon').mean('lat')
@@ -304,19 +319,19 @@ plt.plot(T,EEP_forced-WEP_forced)
 plt.title('Pacific SST Gradient')
 plt.legend(('Ens. Mean','SNP Filtered'))
 
-# %%
-f=plt.figure()
-plt.plot(T,US_land_ensmean)
-plt.plot(T,US_land_forced)
-plt.title('U.S. Land Surface Temperature')
-plt.legend(('Ens. Mean','SNP Filtered'))
+# # %%
+# f=plt.figure()
+# plt.plot(T,US_land_ensmean)
+# plt.plot(T,US_land_forced)
+# plt.title('U.S. Land Surface Temperature')
+# plt.legend(('Ens. Mean','SNP Filtered'))
 
-# %%
-f=plt.figure()
-plt.plot(T,tropical_land_ensmean)
-plt.plot(T,tropical_land_forced)
-plt.title('Tropical Land Surface Temperature')
-plt.legend(('Ens. Mean','SNP Filtered'))
+# # %%
+# f=plt.figure()
+# plt.plot(T,tropical_land_ensmean)
+# plt.plot(T,tropical_land_forced)
+# plt.title('Tropical Land Surface Temperature')
+# plt.legend(('Ens. Mean','SNP Filtered'))
 
 # %%
 

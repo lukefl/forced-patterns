@@ -10,15 +10,17 @@ import pickle
 # USER INPUT
 model = 'NorESM2-LM'
 exp = 'ssp370-126aer'
-ramipdir = '/gws/nopw/j04/terrafirma/RAMIP/'
+# datadir = '/gws/nopw/j04/terrafirma/RAMIP/'
+datadir = '/project/p/pjk/lfl/ramip'
 # lensdir='/glade/collections/cdg/data/CLIVAR_LE/cesm_lens/Amon/ts/' # directory where surface temperature data are located
-ensdir = f"{ramipdir}{model}{exp}"
-# tsdir = f"{ramipdir}{model}/{exp}/Amon/ts/"# directory where surface temperature data are located
+ensdir = f"{datadir}/{model}/{exp}"
+# tsdir = f"{datadir}{model}/{exp}/Amon/ts/"# directory where surface temperature data are located
 # outputdir = '/glade/work/rwills/python_output/forced_component/' # directory for saving Pickle files (copy files and change to a directory you have write access)
-outputdir = '/home/users/lfraser/' # directory for saving Pickle files (copy files and change to a directory you have write access)
-name = "cesm_lens" # name used in Pickle files
-varnam = 'ts' # set to ts for full ts field, ts50 for 50°S to 50°N 
-T = np.arange(1920,2006,1/12) # historical simulations start in 1920 for CESM, 1850 for MPI (first input to arrange must match)
+outputdir = '/project/p/pjk/lfl/ramip/snp_data' # directory for saving Pickle files (copy files and change to a directory you have write access)
+name = f"{model}-{exp}" # name used in Pickle files
+varnam = 'tas' # set to ts for full ts field, ts50 for 50°S to 50°N
+decades = [2015, 2020, 2030, 2040] # decades to use for analysis
+T = np.arange(2015,2050,1/12) # historical simulations start in 1920 for CESM, 1850 for MPI (first input to arrange must match)
 # Second input to arrange can be chosen to select period of interest, but change name used in pickle files for end-dates other than 2006
 
 # %%
@@ -40,30 +42,27 @@ T = np.arange(1920,2006,1/12) # historical simulations start in 1920 for CESM, 1
 
 try:
     # load pre-processed SST data from Pickle
-    ts_all = pickle.load( open(outputdir+name+"_"+varnam+"_all.p", "rb" ))
-    ts_clim_all = pickle.load( open(outputdir+name+"_"+varnam+"_clim_all.p", "rb" ))
+    ts_all = pickle.load(open(f"{outputdir}/{name}_{varnam}_all.p", "rb" ))
+    ts_clim_all = pickle.load(open(f"{outputdir}/{name}_{varnam}_clim_all.p", "rb" ))
     lat = ts_all.lat
     lon = ts_all.lon
     time = ts_all.time
         
 except:
     # preprocess SST data and save to Pickle
-    
+
     # get data files
-    # files = sorted(os.listdir(tsdir))
-    members = sorted(os.listdir(ensdir))
-    # files = [s for s in files if "rcp85" in s]
+    members = [f"r{i}i1p1f1" for i in range(4,11)]
     n = len(members)
     ne = np.empty(n)
 
     # define axes
-    # fname = f"
     ds0list = []
-    for dec in [2015, 2020, 2030, 2040, 2050]:
+    for dec in decades:
         deci = dec
         decf = dec + 9 - dec%10
-        filename0 = f"{ensdir}{members[0]}/Amon/tas/gn/v20230810/
-            tas_Amon_{model}_{exp}_{members[0]}_gn_{deci}01-{decf}_12.nc"
+        filename0 = f"{ensdir}/{members[0]}/Amon/{varnam}/gn/v20230810/"\
+            + f"{varnam}_Amon_{model}_{exp}_{members[0]}_gn_{deci}01-{decf}12.nc"
         ds0dec = xr.open_dataset(filename0)
         ds0list.append(ds0dec)
     ds0 = xr.concat(ds0list, dim="time")
@@ -73,13 +72,7 @@ except:
     nt = len(time) 
     nt_cut = len(T)
     month = np.linspace(1, 12, 12)
-    
-    # for ii in range(n):
-    #     # find ensemble member number
-    #     i1 = files[ii].find('85_r')+4
-    #     i2 = files[ii].find('i1')
-    #     ne[ii] = int(files[ii][i1:i2])
-    
+
     ts_all = np.empty((n,nt_cut,len(lat),len(lon)))
     ts_clim_all = np.empty((n,12,len(lat),len(lon)))
     time = time[0:nt_cut]
@@ -89,33 +82,24 @@ except:
     # concatenate all ensemble members into one dataset
     for ii, member in enumerate(members):
         print(ii)
-        filename = f"{ensdir}{member}/Amon/tas/gn/v20230810/
-            tas_Amon_{model}_{exp}_{member}_gn_{deci}01-{decf}_12.nc"
-        ds_member = xr.open_dataset(filename)
-        # ts = ds_member.tas[-nt:,:,:]
-        # ts = ts[0:nt_cut,:,:]
-        ts = ds_member.tas[-nt:,:,:]
+        dslist = []
+        for dec in decades:
+            deci = dec
+            decf = dec + 9 - dec%10
+            filename = f"{ensdir}/{member}/Amon/{varnam}/gn/v20230810/"\
+                + f"{varnam}_Amon_{model}_{exp}_{member}_gn_{deci}01-{decf}12.nc"
+            dsdec = xr.open_dataset(filename)
+            dslist.append(dsdec)
+        ds_member = xr.concat(dslist, dim="time")
+
+        ts = ds_member[varnam][-nt:,:,:]
         ts_clim = ts.groupby('time.month').mean('time')
         ts_anom = ts.groupby('time.month')-ts_clim
-        # if ne[ii] >= 35: # workaround because latitude in the CESM runs on a different computer have machine perturbation lat differences
-        #     ts_all[ii,:,:,:] = ts_anom.values
-        #     ts_clim_all[ii,:,:,:] = ts_clim.values
-        # else:
         ts_all[ii,:,:,:] = ts_anom
         ts_clim_all[ii,:,:,:] = ts_clim
         
-    # coarsen resolution by a factor of 2
-    # ts_all = ts_all.coarsen(lon=2, lat = 2, boundary='trim').mean()
-    # ts_clim_all = ts_clim_all.coarsen(lon=2, lat = 2, boundary='trim').mean()
-    
-    # # interpolate to common analysis grid (land mask not yet applied)
-    # if varnam == 'ts50':
-    #     lati = lati[8:40] # to exclude latitudes greater than 50 degrees
-    # ts_all = ts_all.interp(lon = loni, lat = lati)
-    # ts_clim_all = ts_clim_all.interp(lon = loni, lat = lati)
-    
-    # pickle.dump(ts_all, open(outputdir+name+"_"+varnam+"_all.p", "wb" ),protocol=4)
-    # pickle.dump(ts_clim_all, open(outputdir+name+"_"+varnam+"_clim_all.p", "wb" ))
+    pickle.dump(ts_all, open(f"{outputdir}/{name}_{varnam}_all.p", "wb" ),protocol=4)
+    pickle.dump(ts_clim_all, open(f"{outputdir}/{name}_{varnam}_clim_all.p", "wb" ))
     
 ne = ts_all.member
 nt = len(ts_all.time)
@@ -123,11 +107,12 @@ nt = len(ts_all.time)
 # %%
 # sanity check plot, just shows changes in temperature over the simulation
 
-field = ts_all.values
-field = np.mean(field,axis=0)
-field_diff = np.mean(field[912:1031,:,:],axis=0)-np.mean(field[0:119,:,:],axis=0)
+# field = ts_all.values
+# field = np.mean(field,axis=0)
+# field_diff = np.mean(field[912:1031,:,:],axis=0)-np.mean(field[0:119,:,:],axis=0)
+field_diff = (ts_all.sel(time=slice('2040-01-01','2049-01-01')).mean(dim='time')-ts_all.sel(time=slice('2015-01-01','2020-01-01')).mean(dim='time')).mean(dim='member')
 f=plt.figure()
-plt.contourf(ts_all.lon.values,ts_all.lat.values,field_diff,np.arange(-1,1.1,0.1),cmap=plt.cm.RdBu_r)
+plt.contourf(ts_all.lon.values,ts_all.lat.values,field_diff,np.arange(-3,3.1,0.1),cmap=plt.cm.RdBu_r)
 cbar = plt.colorbar()
 
 # %%
@@ -153,38 +138,40 @@ Xt_ensmean_flat = Xt_ensmean.stack(shape=['lat','lon'])
 index = X_flat.index
 n = len(index)
 
-# %%
+# %%time
 # Perform ensemble EOF analysis (takes a few minutes), or load from Pickle if it has already been done
 
 try:
     # load PCA output from Pickle
-    pcvec,evl = pickle.load( open(outputdir+name+"_"+varnam+"_EIG.p", "rb" ))
+    pcvec,evl = pickle.load(open(f"{outputdir}/{name}_{varnam}_EIG.p", "rb" ))
 
 except:
-    # Large Ensemble EOFs
+# Large Ensemble EOFs
     Cov = np.matmul(X_flat.values.T,X_flat.values)/(n-1)
+    print('computing eigenvalues (this may take about 15 minutes)...')
     evl,pcvec = np.linalg.eig(Cov)
-    pickle.dump([pcvec,evl], open(outputdir+name+"_"+varnam+"_EIG.p", "wb" ),protocol=4)
+    print('done')
+    pickle.dump([pcvec,evl], open(f"{outputdir}/{name}_{varnam}_EIG.p", "wb" ),protocol=4)
     
 s=np.sqrt(evl)
 
-## keeping the below as a reminder that SVD is much slower than eigenvalue analysis for datasets with long time dimension
+# keeping the below as a reminder that SVD is much slower than eigenvalue analysis for datasets with long time dimension
 
-#%%time
-# Perform ensemble EOF analysis (SVD takes ~20-25 minutes), or load from Pickle if it has already been done
+# # %%time
+# # Perform ensemble EOF analysis (SVD takes ~20-25 minutes), or load from Pickle if it has already been done
 
-#try:
+# try:
 #    # load SVD output from Pickle
 #    u,s = pickle.load( open(outputdir+name+"_"+varnam+"_SVD.p", "rb" ))
 
-#except:
-    # Large Ensemble EOFs
+# except:
+#     # Large Ensemble EOFs
     
 #    #u,s = np.linalg.svd(np.transpose(X_flat.values)/np.sqrt(n-1))
 #    u,s = np.linalg.svd(np.transpose(X_flat[0:int(n/10),:].values)/np.sqrt(n/10-1))
 #    pickle.dump([u,s], open(outputdir+name+"_"+varnam+"_SVD.p", "wb" ),protocol=4)
     
-#eigvals=np.diag(s*s)
+# eigvals=np.diag(s*s)
 
 # %%
 # S/N Maximizing (Forced) Pattern analysis
@@ -243,9 +230,9 @@ plt.title('Signal Fraction')
 
 # %%
 # Plot S/N maximizing patterns (SNPs)
-for neof_plot in range(5): 
+for neof_plot in range(5):
     f=plt.figure()
-    plt.contourf(lon.values,lat.values,np.squeeze(SNPs_reshaped[neof_plot,:,:]),np.arange(-0.6,0.65,0.05),cmap=plt.cm.RdBu_r)
+    plt.contourf(lon.values,lat.values,np.squeeze(SNPs_reshaped[neof_plot,:,:]),np.arange(-1.5,1.65,0.15),cmap=plt.cm.RdBu_r)
     cbar = plt.colorbar()
 
 # %%
@@ -254,7 +241,7 @@ tk_reshape=tk.reshape(nt,len(ne),neof)
 
 for neof_plot in range(5): 
     f=plt.figure()
-    [plt.plot(T,tk_reshape[:,mm,neof_plot],color='crimson') for mm in range(40)];
+    [plt.plot(T,tk_reshape[:,mm,neof_plot],color='crimson') for mm in range(7)];
     plt.plot(T,tk_emean[:,neof_plot])
     plt.title('SNP'+str(neof_plot+1))
 
@@ -334,6 +321,3 @@ plt.legend(('Ens. Mean','SNP Filtered'))
 # plt.legend(('Ens. Mean','SNP Filtered'))
 
 # %%
-
-
-
